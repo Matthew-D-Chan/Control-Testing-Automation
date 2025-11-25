@@ -31,5 +31,5 @@ class AnswerRequest(BaseModel):
 
 # Data shape of the LLM's response
 class AnswerResponse(BaseModel):
-    feadback: str
+    feedback: str
     messages: List[Message] # Keep the total list of messages to give as context to the llm for the next question

@@ -50,7 +50,7 @@ async def post_answer(session_id: str, payload: AnswerRequest):
     if session_id not in sessions:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    now = datetime
+    now = datetime.now()
 
     # (A) The user message (an instance of the mydantic model 'Message')
     user_msg = Message(
