@@ -3,9 +3,6 @@ from typing import List, Dict, Any
 from datetime import datetime
 import uuid
 
-# ********** Temporary database ********** Switch this out with supabase asap
-sessions:Dict[str, Dict[str, Any]] = {}
-
 def generate_id(prefix: str) -> str:
     return f"{prefix}_{uuid.uuid4().hex[:8]}"
 
@@ -33,3 +30,9 @@ class AnswerRequest(BaseModel):
 class AnswerResponse(BaseModel):
     feedback: str
     messages: List[Message] # Keep the total list of messages to give as context to the llm for the next question
+
+# Summary of all the sessions the user made
+class SessionSummary(BaseModel):
+    id: str
+    createdAt: datetime
+    # Add title later 
