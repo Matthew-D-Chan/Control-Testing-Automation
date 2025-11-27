@@ -1,0 +1,163 @@
+.home-view {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.home-hero {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  background: linear-gradient(to bottom, var(--bg-primary, #ffffff), #A8AAAC);
+}
+
+.hero-content {
+  text-align: center;
+  max-width: 600px;
+}
+
+.hero-logo {
+  height: 4rem;
+  width: 4rem;
+  margin-bottom: 1.5rem;
+}
+
+.hero-title {
+  font-size: 2.5rem;
+  font-weight: 700;
+  margin: 0 0 0.75rem 0;
+  color: var(--text-primary, #1a1a1a);
+  font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+}
+
+.hero-subtitle {
+  font-size: 1.125rem;
+  color: var(--text-secondary, #4a4a4a);
+  margin: 0 0 2rem 0;
+  font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+}
+
+.hero-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2rem;
+  font-size: 1rem;
+  font-weight: 600;
+  color: white;
+  background: var(--primary-color, #c8102e);
+  border: none;
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 4px rgba(200, 16, 46, 0.2);
+  font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+}
+
+.hero-button:hover:not(:disabled) {
+  background: var(--primary-hover, #a00d25);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(200, 16, 46, 0.3);
+}
+
+.hero-button:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.hero-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.hero-button span:first-child {
+  font-size: 1.5rem;
+  font-weight: 300;
+}
+
+.home-sessions {
+  padding: 3rem 2rem;
+  background: var(--bg-primary, #ffffff);
+  transition: opacity 0.3s ease;
+  border-top: 1px solid var(--border-color, #d0d0d0);
+}
+
+.sessions-content {
+  max-width: 800px;
+  margin: 0 auto;
+}
+
+.sessions-title {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin: 0 0 1.5rem 0;
+  color: var(--text-primary, #1a1a1a);
+  font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+}
+
+.sessions-loading {
+  display: flex;
+  justify-content: center;
+  padding: 2rem;
+}
+
+.sessions-empty {
+  color: var(--text-secondary, #888);
+  font-style: italic;
+  text-align: center;
+  padding: 2rem;
+}
+
+.sessions-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.session-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 1rem 1.25rem;
+  background: var(--session-item-bg, #f9f9f9);
+  border: 1px solid var(--session-item-border, #d0d0d0);
+  border-radius: 0.5rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  text-align: left;
+  font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+}
+
+.session-item:hover {
+  background: var(--session-item-hover-bg, #f0f7ff);
+  border-color: var(--session-item-hover-border, #c8102e);
+  transform: translateX(4px);
+}
+
+.session-item-content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.session-item-title {
+  font-weight: 500;
+  color: var(--text-primary, #333);
+}
+
+.session-item-date {
+  font-size: 0.875rem;
+  color: var(--text-secondary, #666);
+}
+
+.session-item-arrow {
+  color: var(--text-secondary, #666);
+  font-size: 1.25rem;
+  transition: transform 0.2s ease;
+}
+
+.session-item:hover .session-item-arrow {
+  transform: translateX(4px);
+}
+

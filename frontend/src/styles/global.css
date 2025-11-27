@@ -1,0 +1,143 @@
+/* Global CSS Variables - CIBC Official Brand Colors */
+:root {
+  /* CIBC Official Brand Colors */
+  --cibc-cardinal-red: #C41F3E; /* rgb(196, 31, 62) - Primary brand color */
+  --cibc-white: #FFFFFF; /* rgb(255, 255, 255) */
+  --cibc-outer-space: #383B3E; /* rgb(56, 59, 62) - Dark gray */
+  --cibc-light-blue: #DEE9F7; /* rgb(222, 233, 247) - Light blue accent */
+  
+  /* Background Colors */
+  --bg-primary: var(--cibc-white);
+  --bg-secondary: var(--cibc-light-blue);
+  --text-primary: var(--cibc-outer-space);
+  --text-secondary: #666666; /* Medium grey for secondary text */
+  --border-color: #d0d0d0; /* Light grey borders */
+  
+  /* Primary colors - CIBC Cardinal Red */
+  --primary-color: var(--cibc-cardinal-red);
+  --primary-hover: #a01a2e; /* Darker shade of Cardinal Red */
+  --primary-light: var(--cibc-light-blue);
+  
+  /* Message colors - CIBC style */
+  --message-user-bg: var(--cibc-cardinal-red);
+  --message-user-text: var(--cibc-white);
+  --message-assistant-bg: #f5f5f5; /* Light grey for assistant */
+  --message-assistant-text: var(--cibc-outer-space);
+  
+  /* Button colors - CIBC style */
+  --button-bg: var(--cibc-cardinal-red);
+  --button-text: var(--cibc-white);
+  --button-hover-bg: var(--primary-hover);
+  --button-secondary-bg: #f5f5f5; /* Light grey */
+  --button-secondary-text: var(--cibc-outer-space);
+  --button-secondary-hover-bg: #e8e8e8;
+  
+  /* Input colors */
+  --input-bg: var(--cibc-white);
+  --input-field-bg: var(--cibc-white);
+  --input-border: #d0d0d0;
+  --input-focus-border: var(--cibc-cardinal-red);
+  
+  /* Header */
+  --header-bg: var(--cibc-white);
+  --header-border: #d0d0d0;
+  
+  /* Chat */
+  --chat-bg: var(--cibc-white);
+  
+  /* Session items */
+  --session-item-bg: #f9f9f9;
+  --session-item-hover-bg: var(--cibc-light-blue);
+  --session-item-border: #d0d0d0;
+  --session-item-hover-border: var(--cibc-cardinal-red);
+  
+  /* Scrollbar */
+  --scrollbar-color: #d0d0d0;
+  --scrollbar-hover-color: #a0a0a0;
+}
+
+/* Dark mode disabled - forcing light mode */
+/* @media (prefers-color-scheme: dark) {
+  :root {
+    --bg-primary: #1a1a1a;
+    --bg-secondary: #242424;
+    --text-primary: #ffffff;
+    --text-secondary: #aaaaaa;
+    --border-color: #333333;
+    
+    --message-assistant-bg: #2a2a2a;
+    --message-assistant-text: #ffffff;
+    
+    --button-secondary-bg: #2a2a2a;
+    --button-secondary-text: #ffffff;
+    --button-secondary-hover-bg: #333333;
+    
+    --input-bg: #1a1a1a;
+    --input-field-bg: #242424;
+    
+    --header-bg: #1a1a1a;
+    --chat-bg: #1a1a1a;
+    
+    --session-item-bg: #242424;
+    --session-item-hover-bg: #2a2a2a;
+    
+    --scrollbar-color: #444444;
+    --scrollbar-hover-color: #666666;
+  }
+} */
+
+/* Reset and base styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  margin: 0;
+  /* CIBC-style professional banking fonts */
+  font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+}
+
+/* Typography - CIBC style */
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.2;
+}
+
+p {
+  font-family: 'Arial', 'Helvetica Neue', Helvetica, sans-serif;
+  line-height: 1.6;
+}
+
+#root {
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* Utility classes */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+

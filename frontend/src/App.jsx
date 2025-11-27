@@ -1,35 +1,73 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { useState } from 'react';
+import { AppLayout } from './components/Layout/AppLayout';
+import { HomeView } from './components/HomeView';
+import { ChatWindow } from './components/Chat/ChatWindow';
+import { useChat } from './hooks/useChat';
+import './styles/global.css';
+import './styles/chat.css';
 
 function App() {
-  const [count, setCount] = useState(0)
+  const {
+    sessions,
+    currentSession,
+    messages,
+    isLoading,
+    isSending,
+    error,
+    createNewSession,
+    loadSession,
+    sendMessage
+  } = useChat();
+
+  const [view, setView] = useState('home'); // 'home' or 'chat'
+
+  const handleCreateSession = async () => {
+    try {
+      //await createNewSession();
+      setView('chat');
+    } catch (err) {
+      console.error('Failed to create session:', err);
+    }
+  };
+
+  const handleSelectSession = async (sessionId) => {
+    try {
+      await loadSession(sessionId);
+      setView('chat');
+    } catch (err) {
+      console.error('Failed to load session:', err);
+    }
+  };
+
+  const handleBackToHome = () => {
+    setView('home');
+  };
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <AppLayout onNavigateHome={handleBackToHome}>
+      {view === 'home' ? (
+        <HomeView
+          sessions={sessions}
+          onCreateSession={handleCreateSession}
+          onSelectSession={handleSelectSession}
+          isLoading={isLoading}
+        />
+      ) : (
+        <div className="chat-container">
+          <ChatWindow
+            messages={messages}
+            onSend={sendMessage}
+            isTyping={isSending}
+          />
+        </div>
+      )}
+      {error && (
+        <div className="error-toast">
+          Error: {error}
+        </div>
+      )}
+    </AppLayout>
+  );
 }
 
-export default App
+export default App;
