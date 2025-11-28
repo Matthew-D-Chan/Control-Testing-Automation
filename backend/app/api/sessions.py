@@ -209,7 +209,22 @@ async def post_answer(session_id: str, payload: AnswerRequest):
 
 @router.delete("/{session_id}")
 async def delete_session(session_id : str):
-    # Query chat_sessions tabe in supabase, find desired id to delete, and delete it 
+    # First, verify the session exists
+    session_check = (
+        supabase
+        .table("chat_sessions")
+        .select("id")
+        .eq("id", session_id)
+        .execute()
+    )
+    
+    if not session_check.data:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Delete all messages associated with this session first (to avoid foreign key constraint)
+    supabase.table("chat_messages").delete().eq("session_id", session_id).execute()
+    
+    # Now delete the session itself
     result = (
         supabase
         .table("chat_sessions")
@@ -217,9 +232,10 @@ async def delete_session(session_id : str):
         .eq("id", session_id)
         .execute()
     )
-    # If no rows were deleted, the session didn't exist
+    
+    # If no rows were deleted, something went wrong
     if not result.data:
-        raise HTTPException(status_code=404, detail="Session not found")
+        raise HTTPException(status_code=500, detail="Failed to delete session")
     return
 
 # PATCH /api/chat_sessions/{id} → rename a session. Still Need to implement this!! After POC

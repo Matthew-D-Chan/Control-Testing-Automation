@@ -16,7 +16,8 @@ function App() {
     createNewSession,
     loadSession,
     sendMessage,
-    fetchSessions
+    fetchSessions,
+    deleteSession
   } = useChat();
 
   const [view, setView] = useState('home'); // 'home' or 'chat'
@@ -45,6 +46,18 @@ function App() {
     fetchSessions();
   };
 
+  const handleDeleteSession = async (sessionId) => {
+    try {
+      await deleteSession(sessionId);
+      // If we deleted the current session, go back to home
+      if (currentSession?.id === sessionId) {
+        setView('home');
+      }
+    } catch (err) {
+      console.error('Failed to delete session:', err);
+    }
+  };
+
   return (
     <AppLayout onNavigateHome={handleBackToHome}>
       {view === 'home' ? (
@@ -52,6 +65,7 @@ function App() {
           sessions={sessions}
           onCreateSession={handleCreateSession}
           onSelectSession={handleSelectSession}
+          onDeleteSession={handleDeleteSession}
           isLoading={isLoading}
         />
       ) : (

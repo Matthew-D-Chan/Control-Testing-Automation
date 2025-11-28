@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import cibcLogo from '../assets/cibc_logo.svg';
 import { Loader } from './common/Loader';
-export function HomeView({ sessions, onCreateSession, onSelectSession, isLoading }) {
+export function HomeView({ sessions, onCreateSession, onSelectSession, onDeleteSession, isLoading }) {
   const sessionsRef = useRef(null);
   const heroRef = useRef(null);
 
@@ -87,21 +87,36 @@ export function HomeView({ sessions, onCreateSession, onSelectSession, isLoading
           ) : sessions.length > 0 ? (
             <div className="sessions-list">
               {sessions.map((session) => (
-                <button
+                <div
                   key={session.id}
                   className="session-item"
-                  onClick={() => onSelectSession(session.id)}
                 >
-                  <div className="session-item-content">
-                    <span className="session-item-title">
-                      {formatSessionTitle(session.createdAt)}
-                    </span>
-                    <span className="session-item-date">
-                      {formatDate(session.createdAt)}
-                    </span>
-                  </div>
-                  <span className="session-item-arrow">→</span>
-                </button>
+                  <button
+                    className="session-item-button"
+                    onClick={() => onSelectSession(session.id)}
+                  >
+                    <div className="session-item-content">
+                      <span className="session-item-title">
+                        {formatSessionTitle(session.createdAt)}
+                      </span>
+                      <span className="session-item-date">
+                        {formatDate(session.createdAt)}
+                      </span>
+                    </div>
+                    <span className="session-item-arrow">→</span>
+                  </button>
+                  <button
+                    className="session-item-delete"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeleteSession(session.id);
+                    }}
+                    aria-label="Delete session"
+                    title="Delete session"
+                  >
+                    🗑️
+                  </button>
+                </div>
               ))}
             </div>
           ) : (

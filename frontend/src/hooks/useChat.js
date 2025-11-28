@@ -114,9 +114,14 @@ export function useChat() {
 
       const data = await response.json();
       
-      // Replace optimistic message and add assistant response
-      const newMessages = data.messages.map(createMessage);
-      setMessages(newMessages);
+      // Remove optimistic message and add both new messages (user + assistant) from backend
+      const newMessagesFromBackend = data.messages.map(createMessage);
+      setMessages(prev => {
+        // Remove the temporary optimistic message
+        const withoutTemp = prev.filter(m => m.id !== tempMessageId);
+        // Append the new messages from backend (user + assistant)
+        return [...withoutTemp, ...newMessagesFromBackend];
+      });
     } catch (err) {
       setError(err.message);
       console.error('Error sending message:', err);
