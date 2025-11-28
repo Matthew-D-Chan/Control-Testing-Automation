@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, FastAPI
 from datetime import datetime
 from typing import List
+from app.services.llm_service import llm_service
 
 # Importing schemas
 from app.schema.schemas import (
@@ -156,7 +157,7 @@ async def post_answer(session_id: str, payload: AnswerRequest):
 
     now = datetime.now()
 
-    # (A) The user message (an instance of the mydantic model 'Message')
+    # (A) The user message (an instance of the pydantic model 'Message')
     user_msg = Message(
         id=generate_id("msg_user"),
         role="user",
@@ -167,7 +168,9 @@ async def post_answer(session_id: str, payload: AnswerRequest):
     )
 
     # (B) The LLM Feedback
-    feedback_text = get_llm_feedback(payload.userAnswer) # Currently does nothing with the input
+    feedback_text = llm_service.generate_reply(
+        user_input=user_msg.content
+    ) # payload.userAnswer
 
     # (C) Assistant feedback message
     assistant_msg = Message(
