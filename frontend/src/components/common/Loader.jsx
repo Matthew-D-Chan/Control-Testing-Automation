@@ -1,5 +1,3 @@
-import './Loader.css';
-
 export function Loader({ size = 'medium' }) {
   return (
     <div className={`loader loader-${size}`}>

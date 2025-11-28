@@ -1,5 +1,3 @@
-import './IconButton.css';
-
 export function IconButton({ 
   icon, 
   label, 

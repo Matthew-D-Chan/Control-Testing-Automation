@@ -1,69 +1,53 @@
 import { useEffect, useRef } from 'react';
 import cibcLogo from '../assets/cibc_logo.svg';
 import { Loader } from './common/Loader';
-import './HomeView.css';
-
 export function HomeView({ sessions, onCreateSession, onSelectSession, isLoading }) {
   const sessionsRef = useRef(null);
   const heroRef = useRef(null);
 
+  // Ensure sessions section is always visible when sessions exist
   useEffect(() => {
-    const handleScroll = () => {
-      if (sessionsRef.current) {
-        // Fade in sessions on scroll
-        if (sessions.length > 0) {
-          const scrolled = window.scrollY;
-          const maxScroll = 300;
-          const opacity = Math.min(scrolled / maxScroll, 1);
-          sessionsRef.current.style.opacity = opacity;
-        } else {
-          sessionsRef.current.style.opacity = 0;
-        }
-      }
-
-      // Update gradient on scroll
-      if (heroRef.current) {
-        const scrolled = window.scrollY;
-        const maxScroll = 500; // Distance over which to fade
-        const scrollProgress = Math.min(scrolled / maxScroll, 1);
-        
-        // Interpolate between light gray (#A8AAAC) and darker gray (#5A5D60)
-        const startGray = { r: 168, g: 170, b: 172 }; // #A8AAAC
-        const endGray = { r: 90, g: 93, b: 96 }; // #5A5D60 (darker gray)
-        
-        const currentGray = {
-          r: Math.round(startGray.r + (endGray.r - startGray.r) * scrollProgress),
-          g: Math.round(startGray.g + (endGray.g - startGray.g) * scrollProgress),
-          b: Math.round(startGray.b + (endGray.b - startGray.b) * scrollProgress)
-        };
-        
-        const grayColor = `rgb(${currentGray.r}, ${currentGray.g}, ${currentGray.b})`;
-        heroRef.current.style.background = `linear-gradient(to bottom, var(--bg-primary, #ffffff), ${grayColor})`;
-      }
-    };
-
-    // Set initial state
     if (sessionsRef.current) {
-      if (sessions.length > 0) {
-        sessionsRef.current.style.opacity = 0;
-      } else {
-        sessionsRef.current.style.opacity = 0;
-      }
+      sessionsRef.current.style.opacity = sessions.length > 0 ? 1 : 1;
     }
-
-    // Call once on mount
-    handleScroll();
-    
-    window.addEventListener('scroll', handleScroll);
-    return () => window.removeEventListener('scroll', handleScroll);
   }, [sessions.length]);
 
   const formatDate = (date) => {
-    return new Date(date).toLocaleDateString([], {
+    const dateObj = new Date(date);
+    const now = new Date();
+    const diffTime = Math.abs(now - dateObj);
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    // If today, show time
+    if (diffDays === 1) {
+      return dateObj.toLocaleTimeString([], {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+    }
+    
+    // If this week, show day name
+    if (diffDays <= 7) {
+      return dateObj.toLocaleDateString([], {
+        weekday: 'long'
+      });
+    }
+    
+    // Otherwise show full date
+    return dateObj.toLocaleDateString([], {
       month: 'short',
       day: 'numeric',
-      year: 'numeric'
+      year: dateObj.getFullYear() !== now.getFullYear() ? 'numeric' : undefined
     });
+  };
+  
+  const formatSessionTitle = (date) => {
+    const dateObj = new Date(date);
+    return `Session from ${dateObj.toLocaleDateString([], {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    })}`;
   };
 
   return (
@@ -110,7 +94,7 @@ export function HomeView({ sessions, onCreateSession, onSelectSession, isLoading
                 >
                   <div className="session-item-content">
                     <span className="session-item-title">
-                      Chat from {formatDate(session.createdAt)}
+                      {formatSessionTitle(session.createdAt)}
                     </span>
                     <span className="session-item-date">
                       {formatDate(session.createdAt)}

@@ -1,5 +1,3 @@
-import './MessageBubble.css';
-
 export function MessageBubble({ message }) {
   const isUser = message.role === 'user';
   const timestamp = new Date(message.createdAt).toLocaleTimeString([], {

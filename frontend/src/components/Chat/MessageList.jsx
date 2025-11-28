@@ -1,8 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from '../common/Loader';
-import './MessageList.css';
-
 export function MessageList({ messages, isTyping = false }) {
   const messagesEndRef = useRef(null);
 

@@ -1,6 +1,4 @@
 import cibcLogoLetters from '../../assets/cibc_logo_letters.svg';
-import './Header.css';
-
 export function Header({ onNavigateHome }) {
   return (
     <header className="app-header">

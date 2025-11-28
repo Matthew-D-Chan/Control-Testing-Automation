@@ -4,7 +4,6 @@ import { HomeView } from './components/HomeView';
 import { ChatWindow } from './components/Chat/ChatWindow';
 import { useChat } from './hooks/useChat';
 import './styles/global.css';
-import './styles/chat.css';
 
 function App() {
   const {
@@ -16,14 +15,15 @@ function App() {
     error,
     createNewSession,
     loadSession,
-    sendMessage
+    sendMessage,
+    fetchSessions
   } = useChat();
 
   const [view, setView] = useState('home'); // 'home' or 'chat'
 
   const handleCreateSession = async () => {
     try {
-      //await createNewSession();
+      await createNewSession();
       setView('chat');
     } catch (err) {
       console.error('Failed to create session:', err);
@@ -41,6 +41,8 @@ function App() {
 
   const handleBackToHome = () => {
     setView('home');
+    // Refresh sessions when returning to home
+    fetchSessions();
   };
 
   return (

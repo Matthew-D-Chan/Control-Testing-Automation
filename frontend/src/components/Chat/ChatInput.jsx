@@ -1,7 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
 import { IconButton } from '../common/IconButton';
-import './ChatInput.css';
-
 export function ChatInput({ onSend, disabled = false }) {
   const [input, setInput] = useState('');
   const textareaRef = useRef(null);
