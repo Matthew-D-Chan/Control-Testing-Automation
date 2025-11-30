@@ -36,3 +36,4 @@ class SessionSummary(BaseModel):
     id: str
     createdAt: datetime
     # Add title later 
+

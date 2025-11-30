@@ -4,7 +4,7 @@ from pydantic import BaseModel
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
 import os
-
+from .rag_setup import get_embedding, EMBEDDING_MODEL
 load_dotenv()
 
 router = APIRouter()
@@ -19,7 +19,7 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 # 4. generate content (setting the data to chat and getting hte response, then returning the response)
 
 class LLMConfig:
-    
+    # Constructor function
     def __init__(
         self,
         model: str = "gemini-2.5-flash-lite",
@@ -31,9 +31,10 @@ class LLMConfig:
         self.max_words = max_words
         self.allow_images = allow_images
 
+    # System instructions (rules the llm is to adhere to) --> This is where we can make the llm more interview like
     def system_instructions(self) -> str:
         parts = [
-            "You are a mock interviewer for an operational risk/control-testing interview.",
+            "You are a real interviewer for an operational risk/control-testing interview.",
             "Always answer in plain text.",
             "Do NOT create or describe images, diagrams, or markdown tables.",
             f"Keep responses under {self.max_words} words unless absolutely necessary.",
@@ -45,29 +46,23 @@ class LLMConfig:
         
         return " ".join(parts)
 
-    # 3) Build the LLM prompt (system + context + new user input)
+    # Build the LLM prompt (system instructions + context (not for POC) + new user input)
     def build_prompt_contents(
         config: LLMConfig,
         user_input: str,
     ):
-        """
-        Build the `contents` list for Gemini, combining:
-        - system instructions
-        - prior chat context (not for the poc)
-        - new user message
-        """
         contents = []
 
-        # 3.1) System message (Gemini doesn't have a strict 'system' role,
+        # System message (Gemini doesn't have a strict 'system' role,
         # so we inject it as an initial "user" message with instructions).
         contents.append({
             "role": "user",
             "parts": [
-                {"text": f"System instructions: {config.system_instructions}"}
+                {"text": f"System instructions: {config.system_instructions()}"}
             ],
         })
 
-        # 3.2) Past messages (map 'assistant' -> 'model' for Gemini)
+        # Past messages (map 'assistant' -> 'model' for Gemini)
         #for msg in context:
         #    role = "user" if msg["role"] == "user" else "model"
 
@@ -76,7 +71,7 @@ class LLMConfig:
         #        "parts": [{"text": msg["content"]}],
         #    })
 
-        # 3.3) Current user input
+        # Current user input
         contents.append({
             "role": "user",
             "parts": [{"text": user_input}],
@@ -84,7 +79,7 @@ class LLMConfig:
 
         return contents
 
-# 4) LLM service wrapper
+# LLM service wrapper
 class LLMService:
     """
     High-level LLM wrapper:
@@ -111,10 +106,10 @@ class LLMService:
         4) return the text response
         """
 
-        # Step 3: build prompt
+        # Build prompt
         contents = LLMConfig.build_prompt_contents(self.config, user_input)
 
-        # Step 4: call Gemini
+        # Call Gemini
         response = self.client.models.generate_content(
             model=self.config.model,
             contents=contents,
