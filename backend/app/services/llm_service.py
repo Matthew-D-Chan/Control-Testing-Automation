@@ -33,12 +33,13 @@ class LLMConfig:
     # System instructions (rules the llm is to adhere to) --> This is where we can make the llm more interview like
     def system_instructions(self) -> str:
         parts = [
-            #"You are a real interviewer for an operational risk/control-testing interview.",
-            "You are a helpful assistant that can answer questions about the ORX Reference Control Library.",
+            "You are a real interviewer, interviewing employees of a financial institution.",
+            "Your job as an interviewer is to determine if the user is following proper operational risk management practices while in the workplace.",
+            "You are to ask the user questions and evaluate their answers. ",
+            #"You are a helpful assistant that can answer questions about the ORX Reference Control Library.",
             "Always answer in plain text.",
             "Do NOT create or describe images, diagrams, or markdown tables.",
             f"Keep responses under {self.max_words} words unless absolutely necessary.",
-            "If the user asks for code, include only the essential parts and explain briefly."
         ]
         
         if not self.allow_images:
@@ -46,12 +47,13 @@ class LLMConfig:
         
         return " ".join(parts)
 
-    # Build the LLM prompt (system instructions + context (not for POC) + new user input)
+    # Build the LLM prompt (system instructions + context (not for POC but quickly added) + new user input)
     @staticmethod
     def build_prompt_contents(
         config: "LLMConfig",
         user_input: str,
         context_text: Optional[str] = None,
+        past_messages: Optional[List[Dict[str, str]]] = None,
     ) -> List[Dict[str, Any]]:
         contents: List[Dict[str, Any]] = []
 
@@ -84,6 +86,17 @@ class LLMConfig:
                 }
             )
 
+        # Past conversation messages (map 'assistant' -> 'model' for Gemini)
+        if past_messages:
+            for msg in past_messages:
+                role = "user" if msg["role"] == "user" else "model"
+                contents.append(
+                    {
+                        "role": role,
+                        "parts": [{"text": msg["content"]}],
+                    }
+                )
+
         # Current user input
         contents.append(
             {
@@ -112,13 +125,18 @@ class LLMService:
     def generate_reply(
         self,
         user_input: str,
+        past_messages: Optional[List[Dict[str, str]]] = None,
     ) -> str:
         """
         Pipeline:
-        1) retreive relevant RAG context form vector database
-        2) build prompt contents
+        1) retrieve relevant RAG context from vector database
+        2) build prompt contents (with past messages + RAG context)
         3) call Gemini
         4) return the text response
+        
+        Args:
+            user_input: The current user's question/input
+            past_messages: Optional list of previous messages in format [{"role": "user"|"assistant", "content": "..."}]
         """
         # 1) Retrieve top-K relevant chunks from Supabase
         matches = retrieve_relevant_chunks(
@@ -148,7 +166,8 @@ class LLMService:
             self.config, 
             user_input=user_input,
             context_text=context_text,
-            )
+            past_messages=past_messages,
+        )
 
         # Call Gemini
         response = self.client.models.generate_content(

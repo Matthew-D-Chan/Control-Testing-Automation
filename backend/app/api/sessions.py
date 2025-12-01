@@ -157,7 +157,23 @@ async def post_answer(session_id: str, payload: AnswerRequest):
 
     now = datetime.now()
 
-    # (A) The user message (an instance of the pydantic model 'Message')
+    # (A) Fetch past messages from this session for context chaining
+    past_messages_result = (
+        supabase
+        .table("chat_messages")
+        .select("role, content")
+        .eq("session_id", session_id)
+        .order("created_at", desc=False)  # oldest first
+        .execute()
+    )
+    
+    # Convert to format expected by LLM service: [{"role": "...", "content": "..."}]
+    past_messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in past_messages_result.data
+    ] if past_messages_result.data else None
+
+    # (B) The user message (an instance of the pydantic model 'Message')
     user_msg = Message(
         id=generate_id("msg_user"),
         role="user",
@@ -167,12 +183,13 @@ async def post_answer(session_id: str, payload: AnswerRequest):
         createdAt=now,
     )
 
-    # (B) The LLM Feedback
+    # (C) The LLM Feedback (with conversation history)
     feedback_text = llm_service.generate_reply(
-        user_input=user_msg.content
-    ) # payload.userAnswer
+        user_input=user_msg.content,
+        past_messages=past_messages,
+    )
 
-    # (C) Assistant feedback message
+    # (D) Assistant feedback message
     assistant_msg = Message(
         id=generate_id("msg_assistant"),
         role="assistant",
@@ -180,7 +197,7 @@ async def post_answer(session_id: str, payload: AnswerRequest):
         createdAt=now
     )
 
-    # (D) Save user and assistant messages to database
+    # (E) Save user and assistant messages to database
     insert_payload = [
         {
             "id": user_msg.id,
@@ -204,7 +221,7 @@ async def post_answer(session_id: str, payload: AnswerRequest):
     supabase.table("chat_messages").insert(insert_payload).execute()
 
     
-    # (E) Return both messages (user request and LLM answer) !!! Now we can shoot it to the frontend
+    # (F) Return both messages (user request and LLM answer) !!! Now we can shoot it to the frontend
     return AnswerResponse(
         feedback=feedback_text,
         messages=[user_msg, assistant_msg]
