@@ -22,3 +22,7 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Project-specific: Data files
+backend/data/pdf/
+backend/data/excel/

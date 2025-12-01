@@ -1,10 +1,9 @@
 from google import genai
 from fastapi import APIRouter
-from pydantic import BaseModel
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
 import os
-from .rag_setup import get_embedding, EMBEDDING_MODEL
+from .rag_setup import retrieve_relevant_chunks
 load_dotenv()
 
 router = APIRouter()
@@ -34,7 +33,8 @@ class LLMConfig:
     # System instructions (rules the llm is to adhere to) --> This is where we can make the llm more interview like
     def system_instructions(self) -> str:
         parts = [
-            "You are a real interviewer for an operational risk/control-testing interview.",
+            #"You are a real interviewer for an operational risk/control-testing interview.",
+            "You are a helpful assistant that can answer questions about the ORX Reference Control Library.",
             "Always answer in plain text.",
             "Do NOT create or describe images, diagrams, or markdown tables.",
             f"Keep responses under {self.max_words} words unless absolutely necessary.",
@@ -47,35 +47,50 @@ class LLMConfig:
         return " ".join(parts)
 
     # Build the LLM prompt (system instructions + context (not for POC) + new user input)
+    @staticmethod
     def build_prompt_contents(
-        config: LLMConfig,
+        config: "LLMConfig",
         user_input: str,
-    ):
-        contents = []
+        context_text: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        contents: List[Dict[str, Any]] = []
 
         # System message (Gemini doesn't have a strict 'system' role,
         # so we inject it as an initial "user" message with instructions).
-        contents.append({
-            "role": "user",
-            "parts": [
-                {"text": f"System instructions: {config.system_instructions()}"}
-            ],
-        })
+        contents.append(
+            {
+                "role": "user",
+                "parts": [
+                    {"text": f"System instructions: {config.system_instructions()}"}
+                ],
+            }
+        )
 
-        # Past messages (map 'assistant' -> 'model' for Gemini)
-        #for msg in context:
-        #    role = "user" if msg["role"] == "user" else "model"
-
-        #    contents.append({
-        #        "role": role,
-        #        "parts": [{"text": msg["content"]}],
-        #    })
+        # Optional retrieved context from the vector database
+        if context_text:
+            contents.append(
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                "Here is background context from internal ORX documents. "
+                                "Use it to answer the user's question. "
+                                "If it seems irrelevant, ignore it.\n\n"
+                                f"{context_text}"
+                            )
+                        }
+                    ],
+                }
+            )
 
         # Current user input
-        contents.append({
-            "role": "user",
-            "parts": [{"text": user_input}],
-        })
+        contents.append(
+            {
+                "role": "user",
+                "parts": [{"text": user_input}],
+            }
+        )
 
         return contents
 
@@ -100,21 +115,48 @@ class LLMService:
     ) -> str:
         """
         Pipeline:
-        1) get context from past messages
+        1) retreive relevant RAG context form vector database
         2) build prompt contents
         3) call Gemini
         4) return the text response
         """
+        # 1) Retrieve top-K relevant chunks from Supabase
+        matches = retrieve_relevant_chunks(
+            query=user_input,
+            match_count=8,
+            min_similarity=0.35,  # tweak as needed
+        )
+        
+        # Turn list of rows into one context string
+        context_pieces = []
+        for m in matches:
+            content = m.get("content")
+            meta = m.get("metadata") or {}
+            src = meta.get("source", "unknown_source")
+            page = meta.get("page")
+            # You can adjust this formatting
+            header = f"[Source: {src}"
+            if page is not None:
+                header += f", page {page}"
+            header += "]"
+            context_pieces.append(f"{header}\n{content}")
 
+        context_text = "\n\n---\n\n".join(context_pieces) if context_pieces else None
+        
         # Build prompt
-        contents = LLMConfig.build_prompt_contents(self.config, user_input)
+        contents = LLMConfig.build_prompt_contents(
+            self.config, 
+            user_input=user_input,
+            context_text=context_text,
+            )
 
         # Call Gemini
         response = self.client.models.generate_content(
             model=self.config.model,
             contents=contents,
         )
-
+        print("RAG matches:", len(matches))
+        print("First chunk:", matches[0] if matches else None)
         # For now we just want plain text
         return response.text
 

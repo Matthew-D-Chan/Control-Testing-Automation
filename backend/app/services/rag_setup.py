@@ -2,6 +2,7 @@ from google import genai
 from typing import List
 import os
 from dotenv import load_dotenv
+from data.database import supabase
 
 load_dotenv()
 
@@ -36,3 +37,25 @@ def chunk_text(text: str, max_chars: int = 800, overlap: int = 200) -> List[str]
         start = max(0, end - overlap)
 
     return chunks
+
+def retrieve_relevant_chunks(
+    query: str,
+    match_count: int = 8,
+    min_similarity: float = 0.3,
+) -> list[dict]:
+    """
+    Use pgvector + Supabase SQL function `match_chunks` to find the most relevant
+    rows in the `chunks` table for this query.
+    """
+    query_embedding = get_embedding(query)
+
+    resp = supabase.rpc(
+        "match_chunks",  # name of your SQL function in Postgres
+        {
+            "query_embedding": query_embedding,
+            "match_count": match_count,
+            "match_threshold": min_similarity,
+        },
+    ).execute()
+
+    return resp.data or []
