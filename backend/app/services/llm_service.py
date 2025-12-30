@@ -1,14 +1,43 @@
 from google import genai
+from google.genai import types
 from fastapi import APIRouter
 from dotenv import load_dotenv
 from typing import List, Dict, Any, Optional
 import os
+import json
 from .rag_setup import retrieve_relevant_chunks
 load_dotenv()
 
 router = APIRouter()
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
+
+# For outputs of llm
+# Simplified schema - only using properties supported by Gemini API
+reg_schema = {
+    "type": "object",
+    "properties": {
+        "interviewer_message": {"type": "string", "minLength": 1}
+    },
+    "required": ["interviewer_message"],
+    "additionalProperties": False
+}
+
+grade_schema = {
+  "type": "object",
+  "properties": {
+    "orm": {
+      "type": "object",
+      "properties": {
+        "orm_pass": {"type": "string", "enum": ["Yes", "No"]},
+        "grade": {"type": "integer"}
+      },
+      "required": ["orm_pass", "grade"]
+    },
+    "interviewer_message": {"type": "string"}
+  },
+  "required": ["orm", "interviewer_message"]
+}
 
 #Here are all the components/functions i want to make for my llm_service
 
@@ -21,7 +50,7 @@ class LLMConfig:
     # Constructor function
     def __init__(
         self,
-        model: str = "gemini-2.5-flash-lite",
+        model: str = "gemini-2.5-flash",
         max_words: int = 250,
         allow_images: bool = False,
     # Add more parameters here as needed to make the bot more interview like
@@ -30,15 +59,16 @@ class LLMConfig:
         self.max_words = max_words
         self.allow_images = allow_images
 
+
     # System instructions (rules the llm is to adhere to) --> This is where we can make the llm more interview like
     def system_instructions(self) -> str:
         parts = [
             "You are a real interviewer, interviewing employees of a financial institution.",
-            "Your job as an interviewer is to determine if the user is following proper operational risk management practices while in the workplace.",
-            "You are to ask the user questions and evaluate their answers. ",
-            #"You are a helpful assistant that can answer questions about the ORX Reference Control Library.",
-            "Always answer in plain text.",
+            "IMPORTANT: If this is the first message in the conversation (no past messages), you MUST start by asking the user what their role is within the financial institution.",
+            "If you already know their role, begin asking questions to determine if the user is following proper operational risk management practices.",
             "Do NOT create or describe images, diagrams, or markdown tables.",
+            "Return JSON only and match the response schema exactly. Do not include extra keys or text outside JSON.",
+            "The interviewer_message should contain your feedback or question.",
             f"Keep responses under {self.max_words} words unless absolutely necessary.",
         ]
         
@@ -59,14 +89,14 @@ class LLMConfig:
 
         # System message (Gemini doesn't have a strict 'system' role,
         # so we inject it as an initial "user" message with instructions).
-        contents.append(
-            {
-                "role": "user",
-                "parts": [
-                    {"text": f"System instructions: {config.system_instructions()}"}
-                ],
-            }
-        )
+        #contents.append(
+        #    {
+        #        "role": "user",
+        #        "parts": [
+        #            {"text": f"System instructions: {config.system_instructions()}"}
+        #        ],
+        #    }
+        #)
 
         # Optional retrieved context from the vector database
         if context_text:
@@ -122,6 +152,54 @@ class LLMService:
         self.client = client
         self.config = config or LLMConfig()
 
+    def _parse_json_or_none(self, text: str) -> Optional[dict]:
+        """
+        Try to parse a JSON string. Return dict if valid, otherwise None.
+        """
+        try:
+            return json.loads(text)
+        except Exception:
+            return None
+
+    def _format_json_response(self, data: dict) -> str:
+        """
+        Format the JSON response into the desired output format:
+        orm_pass: Yes/No
+        grade: 0-10
+        
+        [interviewer_message]
+        """
+        try:
+            if not isinstance(data, dict):
+                return json.dumps(data, indent=2)
+            
+            parts = []
+            
+            # Extract ORM information
+            if "orm" in data and isinstance(data["orm"], dict):
+                orm = data["orm"]
+                if "orm_pass" in orm:
+                    parts.append(f"orm_pass: {orm['orm_pass']}")
+                if "grade" in orm:
+                    parts.append(f"grade: {orm['grade']}")
+            
+            # Add blank line before feedback
+            if parts:
+                parts.append("")
+            
+            # Add interviewer message (feedback)
+            if "interviewer_message" in data:
+                parts.append(data["interviewer_message"])
+            elif "question" in data:
+                # Fallback: use "question" field if interviewer_message is missing
+                parts.append(data["question"])
+            
+            return "\n".join(parts)
+        except Exception as e:
+            print(f"Error formatting JSON response: {e}")
+            # Fallback: return the original JSON string
+            return json.dumps(data, indent=2)
+
     def generate_reply(
         self,
         user_input: str,
@@ -169,15 +247,185 @@ class LLMService:
             past_messages=past_messages,
         )
 
-        # Call Gemini
-        response = self.client.models.generate_content(
-            model=self.config.model,
-            contents=contents,
-        )
-        print("RAG matches:", len(matches))
-        print("First chunk:", matches[0] if matches else None)
-        # For now we just want plain text
-        return response.text
+        # Determine which schema to use based on number of assistant responses
+        #assistant_count = sum(1 for msg in (past_messages or []) if msg.get("role") == "assistant")
+        #current_schema = reg_schema if assistant_count < 2 else grade_schema
+
+        # Content configuration for llm
+        gen_config = types.GenerateContentConfig(
+                system_instruction=self.config.system_instructions(),
+                response_mime_type="application/json",
+                response_schema=grade_schema,
+                temperature=0.2, # adjust if needed
+                max_output_tokens=600,  # adjust if needed
+            )
+
+        try:
+            # Call Gemini
+            try:
+                response = self.client.models.generate_content(
+                    model=self.config.model,
+                    contents=contents,
+                    config=gen_config,
+                )
+            except Exception as api_error:
+                print(f"Gemini API call failed: {str(api_error)}")
+                print(f"Error type: {type(api_error)}")
+                import traceback
+                print(traceback.format_exc())
+                
+                # Check if it's a quota/rate limit error - check the error object directly
+                error_str = str(api_error)
+                error_repr = repr(api_error)
+                
+                # Check for quota errors in multiple ways
+                is_quota_error = (
+                    "429" in error_str or 
+                    "RESOURCE_EXHAUSTED" in error_str or 
+                    "quota" in error_str.lower() or
+                    "429" in error_repr or
+                    "RESOURCE_EXHAUSTED" in error_repr
+                )
+                
+                if is_quota_error:
+                    print("Detected quota/rate limit error")
+                    default_data = {
+                        "orm": {"orm_pass": "No", "grade": 0},
+                        "interviewer_message": "I apologize, but the API quota has been exceeded. Please try again later or check your API billing settings."
+                    }
+                else:
+                    # Return a default formatted response for other errors
+                    print(f"Non-quota error detected: {error_str[:200]}")
+                    default_data = {
+                        "orm": {"orm_pass": "No", "grade": 0},
+                        "interviewer_message": f"I apologize, but I encountered an error: {error_str[:100]}. Please try again."
+                    }
+                return self._format_json_response(default_data)
+            
+            print("RAG matches:", len(matches))
+            print("First chunk:", matches[0] if matches else None)
+            print(f"System instructions: {self.config.system_instructions()[:200]}...")
+            print(f"Past messages count: {len(past_messages) if past_messages else 0}")
+            
+            # Extract text from response - handle different response structures
+            response_text = None
+            try:
+                if hasattr(response, 'text') and response.text:
+                    response_text = response.text
+                elif hasattr(response, 'candidates') and response.candidates:
+                    candidate = response.candidates[0]
+                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                        parts = candidate.content.parts
+                        if parts and hasattr(parts[0], 'text'):
+                            response_text = parts[0].text
+            except Exception as e:
+                print(f"Error extracting text from response: {e}")
+            
+            if not response_text:
+                print("Warning: No text content found in Gemini response")
+                print(f"Response object: {response}")
+                print(f"Response type: {type(response)}")
+                if hasattr(response, 'candidates'):
+                    print(f"Response candidates: {response.candidates}")
+                print(f"Response attributes: {[attr for attr in dir(response) if not attr.startswith('_')]}")
+                # Try to get more info about why there's no text
+                if hasattr(response, 'prompt_feedback'):
+                    print(f"Prompt feedback: {response.prompt_feedback}")
+                default_data = {
+                    "orm": {"orm_pass": "No", "grade": 0},
+                    "interviewer_message": "I apologize, but I encountered an error processing the response. Please try again.",
+                }
+                return self._format_json_response(default_data)
+            
+            print(f"Response text preview: {response_text[:300]}")
+            print(f"Response text length: {len(response_text)}")
+            
+            # Json payloaddd first try
+            data = self._parse_json_or_none(response_text)
+            if data is not None:
+                # Check if it has the basic structure we need (be lenient)
+                if isinstance(data, dict):
+                    # If it has orm and interviewer_message, use it
+                    if "orm" in data and "interviewer_message" in data:
+                        print("Successfully parsed and validated JSON response")
+                        # Format the JSON into the desired output format
+                        formatted_response = self._format_json_response(data)
+                        return formatted_response
+                    else:
+                        print(f"JSON parsed but missing required fields. Keys: {data.keys()}")
+                else:
+                    print(f"JSON parsed but is not a dict. Type: {type(data)}")
+
+            # If JSON parsing failed, try repair
+            print("JSON parsing failed, attempting repair...")
+            repair_contents = contents + [
+                {
+                    "role": "user",
+                    "parts": [
+                        {
+                            "text": (
+                                "Your previous output was invalid JSON or did not match the response schema. "
+                                "Return ONLY valid JSON with this exact structure: "
+                                '{"orm": {"orm_pass": "Yes" or "No", "grade": 0-10}, '
+                                '"interviewer_message": "your message"}. '
+                                "Do not include any extra text or markdown formatting."
+                            )
+                        }
+                    ],
+                }
+            ]
+
+            try:
+                response2 = self.client.models.generate_content(
+                    model=self.config.model,
+                    contents=repair_contents,
+                    config=gen_config,
+                )
+            except Exception as repair_error:
+                print(f"Repair API call failed: {repair_error}")
+                # Return first response even if not valid JSON
+                return response_text
+
+            # Extract text from second response
+            response2_text = None
+            try:
+                if hasattr(response2, 'text') and response2.text:
+                    response2_text = response2.text
+                elif hasattr(response2, 'candidates') and response2.candidates:
+                    candidate = response2.candidates[0]
+                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
+                        parts = candidate.content.parts
+                        if parts and hasattr(parts[0], 'text'):
+                            response2_text = parts[0].text
+            except Exception as e:
+                print(f"Error extracting text from repair response: {e}")
+
+            # Try to parse and format the second attempt
+            if response2_text:
+                data2 = self._parse_json_or_none(response2_text)
+                if data2 is not None and isinstance(data2, dict) and "orm" in data2 and "interviewer_message" in data2:
+                    # Format the JSON into the desired output format
+                    formatted_response2 = self._format_json_response(data2)
+                    return formatted_response2
+                # Fallback: return raw text if parsing fails
+                return response2_text
+            else:
+                # Fallback: return first response even if not valid
+                return response_text
+                
+        except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Error in generate_reply: {str(e)}")
+            print(f"Full traceback:\n{error_trace}")
+            # Return a default formatted response instead of raising
+            default_data = {
+                "orm": {"orm_pass": "No", "grade": 0},
+                "interviewer_message": "I apologize, but I encountered an error. Please try again."
+            }
+            return self._format_json_response(default_data)
+
+
 
 # Create and export a singleton instance
 llm_service = LLMService(client=client)

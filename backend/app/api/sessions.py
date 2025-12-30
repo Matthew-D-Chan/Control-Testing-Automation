@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, FastAPI
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import List
 from app.services.llm_service import llm_service
 
@@ -20,6 +20,24 @@ router = APIRouter(
     prefix="/sessions",
     tags=["chats"]
 )
+
+# Helper function to ensure datetime is timezone-aware (UTC)
+def ensure_utc_datetime(dt):
+    """Convert a datetime to UTC timezone-aware datetime if it's not already."""
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        # Parse string and assume UTC if no timezone info
+        parsed = datetime.fromisoformat(dt.replace('Z', '+00:00'))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    if isinstance(dt, datetime):
+        if dt.tzinfo is None:
+            # Assume naive datetime is UTC
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+    return dt
 
 # ********** Fake LLM feedback ********** Making a separate file for this later
 
@@ -51,7 +69,7 @@ async def list_sessions():
     return [
         SessionSummary(
             id=row["id"], # Iterate through all ids to return a list of all sessions in SessionSummary format
-            createdAt=row["created_at"],
+            createdAt=ensure_utc_datetime(row["created_at"]),
         )
         for row in result.data
     ]
@@ -86,7 +104,7 @@ async def create_session():
     # 4) Return it in the shape of SessionSummary
     return SessionSummary(
         id=session_row["id"],
-        createdAt=session_row["created_at"],
+        createdAt=ensure_utc_datetime(session_row["created_at"]),
     )
 
 # ***** Get a specific chat session and all of its messages *****
@@ -119,12 +137,13 @@ async def get_session(session_id: str):
     )
 
     # Converting the database rows into pydantic models (because there was initially some descrepincy)
+    # Ensure timestamps are timezone-aware (Supabase stores in UTC)
     messages = [
         Message(
             id=m["id"],
             role=m["role"],
             content=m["content"],
-            createdAt=m["created_at"],
+            createdAt=ensure_utc_datetime(m["created_at"]),
         )
         for m in messages_result.data
     ]
@@ -132,7 +151,7 @@ async def get_session(session_id: str):
     # need to return some supabase version
     return Session(
         id=session_row["id"],
-        createdAt=session_row["created_at"],
+        createdAt=ensure_utc_datetime(session_row["created_at"]),
         messages=messages # The array from above of the properly converted pydantic schema messages 
     )
 
@@ -155,7 +174,9 @@ async def post_answer(session_id: str, payload: AnswerRequest):
     if not session_result.data:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    now = datetime.now()
+    # Get timestamp for user message - this should be first chronologically
+    # Use UTC to avoid timezone issues when displaying on frontend
+    user_timestamp = datetime.now(timezone.utc)
 
     # (A) Fetch past messages from this session for context chaining
     past_messages_result = (
@@ -180,21 +201,32 @@ async def post_answer(session_id: str, payload: AnswerRequest):
         # Taking out a piece of the pydantic model (userAnswer is a var inside the payload, AnswerRequest).
         # It looks generic because the payload is going to by dynamic based on what the user submits
         content=payload.userAnswer, 
-        createdAt=now,
+        createdAt=user_timestamp,
     )
 
     # (C) The LLM Feedback (with conversation history)
-    feedback_text = llm_service.generate_reply(
-        user_input=user_msg.content,
-        past_messages=past_messages,
-    )
+    try:
+        feedback_text = llm_service.generate_reply(
+            user_input=user_msg.content,
+            past_messages=past_messages,
+        )
+    except Exception as e:
+        print(f"LLM service error: {str(e)}")
+        import traceback
+        print(traceback.format_exc())
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate LLM response: {str(e)}"
+        )
 
-    # (D) Assistant feedback message
+    # (D) Assistant feedback message - timestamp is set AFTER LLM call to ensure it comes after user message
+    # Use UTC to avoid timezone issues when displaying on frontend
+    assistant_timestamp = datetime.now(timezone.utc)
     assistant_msg = Message(
         id=generate_id("msg_assistant"),
         role="assistant",
         content=feedback_text, # Taken directly from the LLM feedback,
-        createdAt=now
+        createdAt=assistant_timestamp
     )
 
     # (E) Save user and assistant messages to database

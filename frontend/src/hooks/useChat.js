@@ -72,7 +72,18 @@ export function useChat() {
       const data = await response.json();
       const session = createSession(data);
       setCurrentSession(session);
-      setMessages(session.messages);
+      // Sort messages by createdAt to ensure correct order
+      // Use a safe comparison function that handles edge cases
+      const sortedMessages = [...session.messages].sort((a, b) => {
+        const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+        const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+        // If timestamps are equal, use id as tiebreaker for consistent ordering
+        if (dateA === dateB) {
+          return a.id.localeCompare(b.id);
+        }
+        return dateA - dateB;
+      });
+      setMessages(sortedMessages);
       return session;
     } catch (err) {
       setError(err.message);
@@ -120,7 +131,18 @@ export function useChat() {
         // Remove the temporary optimistic message
         const withoutTemp = prev.filter(m => m.id !== tempMessageId);
         // Append the new messages from backend (user + assistant)
-        return [...withoutTemp, ...newMessagesFromBackend];
+        const allMessages = [...withoutTemp, ...newMessagesFromBackend];
+        // Sort by createdAt to ensure correct chronological order
+        // Use a safe comparison function that handles edge cases
+        return allMessages.sort((a, b) => {
+          const dateA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+          const dateB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+          // If timestamps are equal, use id as tiebreaker for consistent ordering
+          if (dateA === dateB) {
+            return a.id.localeCompare(b.id);
+          }
+          return dateA - dateB;
+        });
       });
     } catch (err) {
       setError(err.message);
