@@ -194,6 +194,79 @@ async def post_answer(session_id: str, payload: AnswerRequest):
         for m in past_messages_result.data
     ] if past_messages_result.data else None
 
+    # Check if interview has reached the limit (5 LLM outputs)
+    assistant_count = sum(1 for msg in (past_messages or []) if msg.get("role") == "assistant")
+    if assistant_count >= 3:
+        # Interview is complete - but still evaluate the user's final input
+        user_msg = Message(
+            id=generate_id("msg_user"),
+            role="user",
+            content=payload.userAnswer,
+            createdAt=user_timestamp,
+        )
+        
+        # Generate final LLM response to evaluate the user's input
+        try:
+            final_feedback_text = llm_service.generate_reply(
+                user_input=user_msg.content,
+                past_messages=past_messages,
+            )
+        except Exception as e:
+            print(f"LLM service error on final response: {str(e)}")
+            import traceback
+            print(traceback.format_exc())
+            # Fallback: use previous response if LLM fails
+            final_feedback_text = None
+        
+        # Extract grade and orm_pass from the final LLM response
+        final_grade = None
+        final_orm_pass = None
+        if final_feedback_text:
+            # Parse the formatted output to extract grade and orm_pass
+            lines = final_feedback_text.split("\n")
+            for line in lines:
+                if line.startswith("orm_pass:"):
+                    final_orm_pass = line.split(":", 1)[1].strip()
+                elif line.startswith("grade:"):
+                    final_grade = line.split(":", 1)[1].strip()
+        
+        # Build termination message with final results
+        termination_message = "Thank you for participating in this interview. The interview has been completed."
+        if final_orm_pass is not None and final_grade is not None:
+            termination_message = f"orm_pass: {final_orm_pass}\ngrade: {final_grade}\n\nThank you for participating in this interview. The interview has been completed."
+        
+        assistant_timestamp = datetime.now(timezone.utc)
+        assistant_msg = Message(
+            id=generate_id("msg_assistant"),
+            role="assistant",
+            content=termination_message,
+            createdAt=assistant_timestamp
+        )
+        
+        # Save both user and assistant termination messages
+        insert_payload = [
+            {
+                "id": user_msg.id,
+                "session_id": session_id,
+                "role": user_msg.role,
+                "content": user_msg.content,
+                "created_at": user_msg.createdAt.isoformat(),
+            },
+            {
+                "id": assistant_msg.id,
+                "session_id": session_id,
+                "role": assistant_msg.role,
+                "content": assistant_msg.content,
+                "created_at": assistant_msg.createdAt.isoformat(),
+            },
+        ]
+        supabase.table("chat_messages").insert(insert_payload).execute()
+        
+        return AnswerResponse(
+            feedback=termination_message,
+            messages=[user_msg, assistant_msg]
+        )
+
     # (B) The user message (an instance of the pydantic model 'Message')
     user_msg = Message(
         id=generate_id("msg_user"),

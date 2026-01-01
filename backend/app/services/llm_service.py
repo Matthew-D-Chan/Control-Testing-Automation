@@ -19,25 +19,48 @@ reg_schema = {
     "properties": {
         "interviewer_message": {"type": "string", "minLength": 1}
     },
-    "required": ["interviewer_message"],
-    "additionalProperties": False
+    "required": ["interviewer_message"]
 }
 
 grade_schema = {
   "type": "object",
   "properties": {
-    "orm": {
-      "type": "object",
-      "properties": {
-        "orm_pass": {"type": "string", "enum": ["Yes", "No"]},
-        "grade": {"type": "integer"}
-      },
-      "required": ["orm_pass", "grade"]
+    "orm_pass": {
+      "type": "string",
+      "enum": ["Yes", "No"]
     },
-    "interviewer_message": {"type": "string"}
+    "grade": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 10
+    },
+    "interviewer_message": {
+      "type": "string",
+      "minLength": 1
+    }
   },
-  "required": ["orm", "interviewer_message"]
+  "required": ["orm_pass", "grade", "interviewer_message"]
 }
+
+def extract_gemini_text(resp) -> str:
+    """
+    Extract full text from Gemini response reliably.
+    Do NOT trust resp.text (it can be partial in some SDK paths).
+    Prefer concatenating candidate content parts.
+    """
+    candidates = getattr(resp, "candidates", None) or []
+    if candidates:
+        cand0 = candidates[0]
+        content = getattr(cand0, "content", None)
+        parts = getattr(content, "parts", None) or []
+
+        joined = "".join((getattr(p, "text", "") or "") for p in parts).strip()
+        if joined:
+            return joined
+
+    # Fallback only if parts are missing/empty
+    text = getattr(resp, "text", None)
+    return (text or "").strip()
 
 #Here are all the components/functions i want to make for my llm_service
 
@@ -175,13 +198,11 @@ class LLMService:
             
             parts = []
             
-            # Extract ORM information
-            if "orm" in data and isinstance(data["orm"], dict):
-                orm = data["orm"]
-                if "orm_pass" in orm:
-                    parts.append(f"orm_pass: {orm['orm_pass']}")
-                if "grade" in orm:
-                    parts.append(f"grade: {orm['grade']}")
+            # Extract ORM information (now flat structure)
+            if "orm_pass" in data:
+                parts.append(f"orm_pass: {data['orm_pass']}")
+            if "grade" in data:
+                parts.append(f"grade: {data['grade']}")
             
             # Add blank line before feedback
             if parts:
@@ -248,14 +269,14 @@ class LLMService:
         )
 
         # Determine which schema to use based on number of assistant responses
-        #assistant_count = sum(1 for msg in (past_messages or []) if msg.get("role") == "assistant")
-        #current_schema = reg_schema if assistant_count < 2 else grade_schema
+        assistant_count = sum(1 for msg in (past_messages or []) if msg.get("role") == "assistant")
+        current_schema = reg_schema if assistant_count < 2 else grade_schema
 
         # Content configuration for llm
         gen_config = types.GenerateContentConfig(
                 system_instruction=self.config.system_instructions(),
                 response_mime_type="application/json",
-                response_schema=grade_schema,
+                response_schema=current_schema,
                 temperature=0.2, # adjust if needed
                 max_output_tokens=600,  # adjust if needed
             )
@@ -290,14 +311,16 @@ class LLMService:
                 if is_quota_error:
                     print("Detected quota/rate limit error")
                     default_data = {
-                        "orm": {"orm_pass": "No", "grade": 0},
+                        "orm_pass": "No",
+                        "grade": 0,
                         "interviewer_message": "I apologize, but the API quota has been exceeded. Please try again later or check your API billing settings."
                     }
                 else:
                     # Return a default formatted response for other errors
                     print(f"Non-quota error detected: {error_str[:200]}")
                     default_data = {
-                        "orm": {"orm_pass": "No", "grade": 0},
+                        "orm_pass": "No",
+                        "grade": 0,
                         "interviewer_message": f"I apologize, but I encountered an error: {error_str[:100]}. Please try again."
                     }
                 return self._format_json_response(default_data)
@@ -310,14 +333,7 @@ class LLMService:
             # Extract text from response - handle different response structures
             response_text = None
             try:
-                if hasattr(response, 'text') and response.text:
-                    response_text = response.text
-                elif hasattr(response, 'candidates') and response.candidates:
-                    candidate = response.candidates[0]
-                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                        parts = candidate.content.parts
-                        if parts and hasattr(parts[0], 'text'):
-                            response_text = parts[0].text
+                response_text = extract_gemini_text(response)
             except Exception as e:
                 print(f"Error extracting text from response: {e}")
             
@@ -332,7 +348,8 @@ class LLMService:
                 if hasattr(response, 'prompt_feedback'):
                     print(f"Prompt feedback: {response.prompt_feedback}")
                 default_data = {
-                    "orm": {"orm_pass": "No", "grade": 0},
+                    "orm_pass": "No",
+                    "grade": 0,
                     "interviewer_message": "I apologize, but I encountered an error processing the response. Please try again.",
                 }
                 return self._format_json_response(default_data)
@@ -345,31 +362,59 @@ class LLMService:
             if data is not None:
                 # Check if it has the basic structure we need (be lenient)
                 if isinstance(data, dict):
-                    # If it has orm and interviewer_message, use it
-                    if "orm" in data and "interviewer_message" in data:
-                        print("Successfully parsed and validated JSON response")
-                        # Format the JSON into the desired output format
-                        formatted_response = self._format_json_response(data)
-                        return formatted_response
+                    # Check for reg_schema format (only interviewer_message) or grade_schema format (orm_pass + grade + interviewer_message)
+                    has_interviewer_message = "interviewer_message" in data
+                    has_orm_pass = "orm_pass" in data
+                    has_grade = "grade" in data
+                    
+                    # Validate based on which schema we're using
+                    is_reg_schema = assistant_count < 2
+                    if is_reg_schema:
+                        # For reg_schema, only need interviewer_message
+                        if has_interviewer_message:
+                            print("Successfully parsed and validated JSON response (reg_schema)")
+                            formatted_response = self._format_json_response(data)
+                            return formatted_response
+                        else:
+                            print(f"JSON parsed but missing interviewer_message. Keys: {data.keys()}")
                     else:
-                        print(f"JSON parsed but missing required fields. Keys: {data.keys()}")
+                        # For grade_schema, need orm_pass, grade, and interviewer_message
+                        if has_orm_pass and has_grade and has_interviewer_message:
+                            print("Successfully parsed and validated JSON response (grade_schema)")
+                            formatted_response = self._format_json_response(data)
+                            return formatted_response
+                        else:
+                            print(f"JSON parsed but missing required fields. Has orm_pass: {has_orm_pass}, Has grade: {has_grade}, Has interviewer_message: {has_interviewer_message}")
                 else:
                     print(f"JSON parsed but is not a dict. Type: {type(data)}")
 
             # If JSON parsing failed, try repair
             print("JSON parsing failed, attempting repair...")
+            
+            # Build repair prompt based on current schema
+            is_reg_schema = assistant_count < 2
+            if is_reg_schema:
+                repair_prompt = (
+                    "Your previous output was invalid JSON or did not match the response schema. "
+                    "Return ONLY valid JSON with this exact structure: "
+                    '{"interviewer_message": "your message"}. '
+                    "Do not include any extra text or markdown formatting."
+                )
+            else:
+                repair_prompt = (
+                    "Your previous output was invalid JSON or did not match the response schema. "
+                    "Return ONLY valid JSON with this exact structure: "
+                    '{"orm_pass": "Yes" or "No", "grade": 0-10, '
+                    '"interviewer_message": "your message"}. '
+                    "Do not include any extra text or markdown formatting."
+                )
+            
             repair_contents = contents + [
                 {
                     "role": "user",
                     "parts": [
                         {
-                            "text": (
-                                "Your previous output was invalid JSON or did not match the response schema. "
-                                "Return ONLY valid JSON with this exact structure: "
-                                '{"orm": {"orm_pass": "Yes" or "No", "grade": 0-10}, '
-                                '"interviewer_message": "your message"}. '
-                                "Do not include any extra text or markdown formatting."
-                            )
+                            "text": repair_prompt
                         }
                     ],
                 }
@@ -389,24 +434,28 @@ class LLMService:
             # Extract text from second response
             response2_text = None
             try:
-                if hasattr(response2, 'text') and response2.text:
-                    response2_text = response2.text
-                elif hasattr(response2, 'candidates') and response2.candidates:
-                    candidate = response2.candidates[0]
-                    if hasattr(candidate, 'content') and hasattr(candidate.content, 'parts'):
-                        parts = candidate.content.parts
-                        if parts and hasattr(parts[0], 'text'):
-                            response2_text = parts[0].text
+                response2_text = extract_gemini_text(response2)
             except Exception as e:
                 print(f"Error extracting text from repair response: {e}")
 
             # Try to parse and format the second attempt
             if response2_text:
                 data2 = self._parse_json_or_none(response2_text)
-                if data2 is not None and isinstance(data2, dict) and "orm" in data2 and "interviewer_message" in data2:
-                    # Format the JSON into the desired output format
-                    formatted_response2 = self._format_json_response(data2)
-                    return formatted_response2
+                if data2 is not None and isinstance(data2, dict):
+                    is_reg_schema = assistant_count < 2
+                    has_interviewer_message = "interviewer_message" in data2
+                    
+                    if is_reg_schema and has_interviewer_message:
+                        # Format the JSON into the desired output format
+                        formatted_response2 = self._format_json_response(data2)
+                        return formatted_response2
+                    elif not is_reg_schema:
+                        has_orm_pass = "orm_pass" in data2
+                        has_grade = "grade" in data2
+                        if has_orm_pass and has_grade and has_interviewer_message:
+                            # Format the JSON into the desired output format
+                            formatted_response2 = self._format_json_response(data2)
+                            return formatted_response2
                 # Fallback: return raw text if parsing fails
                 return response2_text
             else:
@@ -420,7 +469,8 @@ class LLMService:
             print(f"Full traceback:\n{error_trace}")
             # Return a default formatted response instead of raising
             default_data = {
-                "orm": {"orm_pass": "No", "grade": 0},
+                "orm_pass": "No",
+                "grade": 0,
                 "interviewer_message": "I apologize, but I encountered an error. Please try again."
             }
             return self._format_json_response(default_data)
