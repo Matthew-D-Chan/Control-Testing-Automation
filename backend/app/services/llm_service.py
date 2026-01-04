@@ -47,16 +47,25 @@ def extract_gemini_text(resp) -> str:
     Extract full text from Gemini response reliably.
     Do NOT trust resp.text (it can be partial in some SDK paths).
     Prefer concatenating candidate content parts.
+    Handles multiple candidates and all parts to prevent truncation.
     """
     candidates = getattr(resp, "candidates", None) or []
     if candidates:
-        cand0 = candidates[0]
-        content = getattr(cand0, "content", None)
-        parts = getattr(content, "parts", None) or []
-
-        joined = "".join((getattr(p, "text", "") or "") for p in parts).strip()
-        if joined:
-            return joined
+        # Collect text from all candidates (though typically there's only one)
+        all_text_parts = []
+        for cand in candidates:
+            content = getattr(cand, "content", None)
+            if content:
+                parts = getattr(content, "parts", None) or []
+                for p in parts:
+                    text = getattr(p, "text", None)
+                    if text:
+                        all_text_parts.append(text)
+        
+        if all_text_parts:
+            joined = "".join(all_text_parts).strip()
+            if joined:
+                return joined
 
     # Fallback only if parts are missing/empty
     text = getattr(resp, "text", None)
@@ -73,7 +82,7 @@ class LLMConfig:
     # Constructor function
     def __init__(
         self,
-        model: str = "gemini-2.5-flash",
+        model: str = "gemini-3-flash-preview",
         max_words: int = 250,
         allow_images: bool = False,
     # Add more parameters here as needed to make the bot more interview like
@@ -90,9 +99,10 @@ class LLMConfig:
             "IMPORTANT: If this is the first message in the conversation (no past messages), you MUST start by asking the user what their role is within the financial institution.",
             "If you already know their role, begin asking questions to determine if the user is following proper operational risk management practices.",
             "Do NOT create or describe images, diagrams, or markdown tables.",
-            "Return JSON only and match the response schema exactly. Do not include extra keys or text outside JSON.",
+            "CRITICAL: Return complete, valid JSON only that matches the response schema exactly. The JSON must be complete and properly closed. Do not truncate the JSON response.",
+            "Do not include extra keys or text outside JSON. The JSON response must be parseable.",
             "The interviewer_message should contain your feedback or question.",
-            f"Keep responses under {self.max_words} words unless absolutely necessary.",
+            f"Keep the interviewer_message concise (under {self.max_words} words) while ensuring the complete JSON structure is returned.",
         ]
         
         if not self.allow_images:
@@ -178,9 +188,27 @@ class LLMService:
     def _parse_json_or_none(self, text: str) -> Optional[dict]:
         """
         Try to parse a JSON string. Return dict if valid, otherwise None.
+        Also detects if JSON appears truncated (incomplete).
         """
+        if not text or not text.strip():
+            return None
+        
         try:
             return json.loads(text)
+        except json.JSONDecodeError as e:
+            # Check if error is due to truncation (unexpected EOF)
+            error_msg = str(e).lower()
+            if "unexpected eof" in error_msg or "expecting" in error_msg:
+                # Try to detect if JSON is incomplete
+                text_stripped = text.strip()
+                # Check if it looks like truncated JSON (ends with incomplete structure)
+                if text_stripped and not text_stripped.endswith('}'):
+                    # Count braces to see if JSON is incomplete
+                    open_braces = text_stripped.count('{')
+                    close_braces = text_stripped.count('}')
+                    if open_braces > close_braces:
+                        print(f"Warning: JSON appears truncated. Open braces: {open_braces}, Close braces: {close_braces}")
+            return None
         except Exception:
             return None
 
@@ -273,12 +301,15 @@ class LLMService:
         current_schema = reg_schema if assistant_count < 2 else grade_schema
 
         # Content configuration for llm
+        # Use higher token limit for grade_schema to prevent truncation
+        # grade_schema has more fields and potentially longer interviewer_message
+        token_limit = 2000 if current_schema == grade_schema else 1000
         gen_config = types.GenerateContentConfig(
                 system_instruction=self.config.system_instructions(),
                 response_mime_type="application/json",
                 response_schema=current_schema,
                 temperature=0.2, # adjust if needed
-                max_output_tokens=600,  # adjust if needed
+                max_output_tokens=token_limit,  # Increased to prevent JSON truncation
             )
 
         try:
@@ -357,7 +388,16 @@ class LLMService:
             print(f"Response text preview: {response_text[:300]}")
             print(f"Response text length: {len(response_text)}")
             
-            # Json payloaddd first try
+            # Check if response might be truncated
+            if response_text and not response_text.strip().endswith('}'):
+                # Check for incomplete JSON structure
+                open_braces = response_text.count('{')
+                close_braces = response_text.count('}')
+                if open_braces > close_braces:
+                    print(f"Warning: Response may be truncated. Open braces: {open_braces}, Close braces: {close_braces}")
+                    print(f"Response ends with: {response_text[-100:]}")
+            
+            # Json payload first try
             data = self._parse_json_or_none(response_text)
             if data is not None:
                 # Check if it has the basic structure we need (be lenient)
@@ -395,18 +435,20 @@ class LLMService:
             is_reg_schema = assistant_count < 2
             if is_reg_schema:
                 repair_prompt = (
-                    "Your previous output was invalid JSON or did not match the response schema. "
-                    "Return ONLY valid JSON with this exact structure: "
+                    "Your previous output was invalid or incomplete JSON. "
+                    "Return ONLY complete, valid JSON with this exact structure: "
                     '{"interviewer_message": "your message"}. '
-                    "Do not include any extra text or markdown formatting."
+                    "The JSON must be complete and properly closed. Do not truncate the response. "
+                    "Do not include any extra text or markdown formatting outside the JSON."
                 )
             else:
                 repair_prompt = (
-                    "Your previous output was invalid JSON or did not match the response schema. "
-                    "Return ONLY valid JSON with this exact structure: "
+                    "Your previous output was invalid or incomplete JSON. "
+                    "Return ONLY complete, valid JSON with this exact structure: "
                     '{"orm_pass": "Yes" or "No", "grade": 0-10, '
                     '"interviewer_message": "your message"}. '
-                    "Do not include any extra text or markdown formatting."
+                    "The JSON must be complete and properly closed with all required fields. "
+                    "Do not truncate the response. Do not include any extra text or markdown formatting outside the JSON."
                 )
             
             repair_contents = contents + [
@@ -421,10 +463,11 @@ class LLMService:
             ]
 
             try:
+                # Use the same config with higher token limit for repair attempt
                 response2 = self.client.models.generate_content(
                     model=self.config.model,
                     contents=repair_contents,
-                    config=gen_config,
+                    config=gen_config,  # Already has the appropriate token_limit set above
                 )
             except Exception as repair_error:
                 print(f"Repair API call failed: {repair_error}")
@@ -437,6 +480,13 @@ class LLMService:
                 response2_text = extract_gemini_text(response2)
             except Exception as e:
                 print(f"Error extracting text from repair response: {e}")
+
+            # Check if repair response might be truncated
+            if response2_text and not response2_text.strip().endswith('}'):
+                open_braces = response2_text.count('{')
+                close_braces = response2_text.count('}')
+                if open_braces > close_braces:
+                    print(f"Warning: Repair response may also be truncated. Open braces: {open_braces}, Close braces: {close_braces}")
 
             # Try to parse and format the second attempt
             if response2_text:
